@@ -9,6 +9,7 @@ type PE struct {
 	ImageOptionalHeader32 *pe.OptionalHeader32
 	ImageOptionalHeader64 *pe.OptionalHeader64
 	ImageSectionHeaders   []*ImageSectionHeader
+	ExportDirectory       *IMAGE_EXPORT_DIRECTORY
 }
 
 func (p *PE) Parse(file []byte) {

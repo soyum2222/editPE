@@ -137,11 +137,13 @@ func GetFileHeader(f []byte) *ImageFileHeader {
 }
 
 func GetOptHeader32(f []byte) *pe.OptionalHeader32 {
-	return (*pe.OptionalHeader32)(unsafe.Pointer(&f[int64(GetDOSHeader(f).ELfanew+4)+int64(unsafe.Sizeof(ImageFileHeader{}))]))
+	return (*pe.OptionalHeader32)(unsafe.Pointer(&f[int64(GetDOSHeader(f).ELfanew)+int64(unsafe.Sizeof(ImageNTHeaders{}))]))
 }
 
 func GetOptHeader64(f []byte) *pe.OptionalHeader64 {
-	return (*pe.OptionalHeader64)(unsafe.Pointer(&f[int64(GetDOSHeader(f).ELfanew+4)+int64(unsafe.Sizeof(ImageFileHeader{}))]))
+	dos := GetDOSHeader(f)
+	offset := int64(dos.ELfanew) + int64(unsafe.Sizeof(ImageNTHeaders{}))
+	return (*pe.OptionalHeader64)(unsafe.Pointer(&f[offset]))
 }
 
 func GetSectionHeader(f []byte) []*ImageSectionHeader {
@@ -163,4 +165,32 @@ func GetSectionHeader(f []byte) []*ImageSectionHeader {
 		sections = append(sections, section)
 	}
 	return sections
+}
+
+func GetDataDirectory(f []byte) *[16]pe.DataDirectory {
+	nt := GetNtHeader(f)
+
+	switch nt.FileHeader.SizeOfOptionalHeader {
+
+	case 0xf0:
+		//x64
+		op := GetOptHeader64(f)
+
+		return &op.DataDirectory
+
+	case 0xe0:
+		//x86
+		op := GetOptHeader32(f)
+
+		return &op.DataDirectory
+	}
+
+	return nil
+}
+
+func GetExportDirectory(f []byte) *IMAGE_EXPORT_DIRECTORY {
+
+	data := GetDataDirectory(f)
+	export := data[pe.IMAGE_DIRECTORY_ENTRY_EXPORT]
+	return (*IMAGE_EXPORT_DIRECTORY)(unsafe.Pointer(&f[export.VirtualAddress]))
 }

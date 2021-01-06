@@ -1,6 +1,11 @@
 package main
 
-import "debug/pe"
+import (
+	"debug/pe"
+	"errors"
+	"reflect"
+	"unsafe"
+)
 
 type PE struct {
 	raw                   []byte
@@ -12,6 +17,132 @@ type PE struct {
 	ExportDirectory       *IMAGE_EXPORT_DIRECTORY
 }
 
+func (p *PE) GetIcon() ([][]byte, error) {
+
+	var icons [][]byte
+	//p.Parse(f)
+	if len(p.raw) == 0 {
+		return nil, errors.New("please call Parse function first")
+	}
+
+	firstResourceDir, rootOffset := GetResourceDirectory(p.raw)
+
+	dirEntryNum := firstResourceDir.NumberOfIdEntries
+
+	entrySlice := make([]*ImageResourceDirectoryEntry, dirEntryNum)
+
+	for i := uint16(0); i < dirEntryNum; i++ {
+		entryOffset := rootOffset + uint32(unsafe.Sizeof(ImageResourceDirectory{})) + (uint32(unsafe.Sizeof(ImageResourceDirectoryEntry{})) * uint32(i))
+		entry := (*ImageResourceDirectoryEntry)(unsafe.Pointer(&p.raw[entryOffset]))
+		entrySlice[i] = entry
+	}
+
+	for _, v := range entrySlice {
+
+		if v.Name&(1<<31) == 0 && v.Name == ENTRY_NAME_ICON {
+
+			offset := v.OffsetToData & (^uint32(1 << 31))
+
+			offset += rootOffset
+
+			//Secondary directory
+			secondResourceDir := (*ImageResourceDirectory)(unsafe.Pointer(&p.raw[offset]))
+
+			dirEntryNum = secondResourceDir.NumberOfIdEntries
+
+			secEntrySlice := make([]*ImageResourceDirectoryEntry, dirEntryNum)
+
+			for i := uint16(0); i < dirEntryNum; i++ {
+				entryOffset := offset + uint32(unsafe.Sizeof(ImageResourceDirectory{})) + (uint32(unsafe.Sizeof(ImageResourceDirectoryEntry{})) * uint32(i))
+				entry := (*ImageResourceDirectoryEntry)(unsafe.Pointer(&p.raw[entryOffset]))
+				secEntrySlice[i] = entry
+			}
+
+			for _, v := range secEntrySlice {
+
+				// high bit is 1 meat point to next dir
+				if v.Name&(1<<31) == 0 {
+
+					offset := v.OffsetToData & (^uint32(1 << 31))
+
+					offset += rootOffset
+
+					thirdResourceDir := (*ImageResourceDirectory)(unsafe.Pointer(&p.raw[offset]))
+
+					dirEntryNum = thirdResourceDir.NumberOfIdEntries
+
+					thirdEntrySlice := make([]*ImageResourceDirectoryEntry, dirEntryNum)
+
+					for i := uint16(0); i < dirEntryNum; i++ {
+						entryOffset := offset + uint32(unsafe.Sizeof(ImageResourceDirectory{})) + (uint32(unsafe.Sizeof(ImageResourceDirectoryEntry{})) * uint32(i))
+						entry := (*ImageResourceDirectoryEntry)(unsafe.Pointer(&p.raw[entryOffset]))
+						thirdEntrySlice[i] = entry
+					}
+
+					for _, v := range thirdEntrySlice {
+
+						offset := v.OffsetToData
+						offset += rootOffset
+
+						data := (*ImageResourceDataEntry)(unsafe.Pointer(&p.raw[offset]))
+
+						rva := data.OffsetToData
+						rawaddr := RVAToOffset(rva, p.raw)
+
+						icons = append(icons, p.raw[rawaddr:rawaddr+data.Size])
+					}
+				}
+			}
+		}
+	}
+
+	// add icon head
+	for i := 0; i < len(icons); i++ {
+		var head []byte
+		icondir := &IconDir{
+			IdReserved: 0,
+			IdType:     1,
+			IdCount:    1,
+		}
+
+		foo := &reflect.SliceHeader{
+			Data: uintptr(unsafe.Pointer(icondir)),
+			Len:  int(unsafe.Sizeof(IconDir{})),
+		}
+
+		h := *(*[]byte)(unsafe.Pointer(foo))
+
+		head = append(head, h...)
+
+		entry := &IconDirEntry{
+			BWidth:      0,
+			BHeight:     0,
+			BColorCount: 0,
+			BReserved:   0,
+			WPlanes:     0,
+			WBitCount:   0,
+			BytesInRes:  uint32(len(icons[i])),
+			ImageOffset: uint32(unsafe.Sizeof(IconDirEntry{}) + unsafe.Sizeof(IconDir{})),
+		}
+
+		foo = &reflect.SliceHeader{
+			Data: uintptr(unsafe.Pointer(entry)),
+			Len:  int(unsafe.Sizeof(IconDirEntry{})),
+		}
+
+		h = *(*[]byte)(unsafe.Pointer(foo))
+
+		head = append(head, h...)
+
+		icons[i] = append(head, icons[i]...)
+	}
+
+	return icons, nil
+}
+
+// please make sure this file is a correct PE file
+// you can use pe.Open() function verification
+// if this file is not correct PE file ,  may happen panic
 func (p *PE) Parse(file []byte) {
 
 	p.raw = file
@@ -22,11 +153,11 @@ func (p *PE) Parse(file []byte) {
 
 	switch p.ImageNTHeaders.FileHeader.SizeOfOptionalHeader {
 
-	case 0xf0:
+	case SIZE_OF_OPTIONAL_HEADER_64:
 		//x64
 		p.ImageOptionalHeader64 = GetOptHeader64(file)
 
-	case 0xe0:
+	case SIZE_OF_OPTIONAL_HEADER_32:
 		//x86
 		p.ImageOptionalHeader32 = GetOptHeader32(file)
 	}

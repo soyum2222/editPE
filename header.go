@@ -5,6 +5,28 @@ import (
 	"unsafe"
 )
 
+const (
+	SIZE_OF_OPTIONAL_HEADER_32 = 0xe0
+	SIZE_OF_OPTIONAL_HEADER_64 = 0xf0
+)
+
+const (
+	ENTRY_NAME_CURSOR              = 0x01
+	ENTRY_NAME_BITMAP              = 0x02
+	ENTRY_NAME_ICON                = 0x03
+	ENTRY_NAME_MENU                = 0x04
+	ENTRY_NAME_DIALOG              = 0x05
+	ENTRY_NAME_STIRING             = 0x06
+	ENTRY_NAME_FONT_DIRECTORY      = 0x07
+	ENTRY_NAME_FONT                = 0x08
+	ENTRY_NAME_ACCELERATOR         = 0x09
+	ENTRY_NAME_UNFORMATTED         = 0x0a
+	ENTRY_NAME_MESSAGETABLE        = 0x0b
+	ENTRY_NAME_GROUP_CURSOR        = 0x0c
+	ENTRY_NAME_GROUP_ICON          = 0x0e
+	ENTRY_NAME_VERSION_INFORMATION = 0x10
+)
+
 /*
 typedef struct _IMAGE_DOS_HEADER {      // DOS .EXE header
     WORD   e_magic;                     // Magic number
@@ -124,6 +146,91 @@ type ImageSectionHeader struct {
 	Characteristics              uint32
 }
 
+/*
+typedef struct _IMAGE_RESOURCE_DIRECTORY {
+    DWORD   Characteristics;
+    DWORD   TimeDateStamp;
+    WORD    MajorVersion;
+    WORD    MinorVersion;
+    WORD    NumberOfNamedEntries;
+    WORD    NumberOfIdEntries;
+//  IMAGE_RESOURCE_DIRECTORY_ENTRY DirectoryEntries[];
+} IMAGE_RESOURCE_DIRECTORY, *PIMAGE_RESOURCE_DIRECTORY;
+*/
+type ImageResourceDirectory struct {
+	Characteristics      uint32
+	TimeDateStamp        uint32
+	MajorVersion         uint16
+	MinorVersion         uint16
+	NumberOfNamedEntries uint16
+	NumberOfIdEntries    uint16
+}
+
+/*
+typedef struct _IMAGE_RESOURCE_DIRECTORY_ENTRY
+	DWORD  Name;
+	DWORD  OffsetToData;
+}_IMAGE_RESOURCE_DIRECTORY_ENTRY, *P_IMAGE_RESOURCE_DIRECTORY_ENTRY;
+*/
+type ImageResourceDirectoryEntry struct {
+	Name         uint32
+	OffsetToData uint32
+}
+
+/*
+typedef struct _IMAGE_RESOURCE_DATA_ENTRY {
+    DWORD   OffsetToData;
+    DWORD   Size;
+    DWORD   CodePage;
+    DWORD   Reserved;
+} IMAGE_RESOURCE_DATA_ENTRY, *PIMAGE_RESOURCE_DATA_ENTRY;
+*/
+type ImageResourceDataEntry struct {
+	OffsetToData uint32
+	Size         uint32
+	CodePage     uint32
+	Reserved     uint32
+}
+
+/*
+typedef struct
+{
+    WORD idReserved; // Reserved (must be 0)
+    WORD idType; // Resource Type (1 for icons)
+    WORD idCount; // How many images?
+    ICONDIRENTRY idEntries[1]; // An entry for each image (idCount of 'em)
+} ICONDIR, *LPICONDIR;
+*/
+type IconDir struct {
+	IdReserved uint16
+	IdType     uint16
+	IdCount    uint16
+}
+
+/*
+typedef struct
+{
+    BYTE bWidth; // Width, in pixels, of the image
+    BYTE bHeight; // Height, in pixels, of the image
+    BYTE bColorCount; // Number of colors in image (0 if >=8bpp)
+    BYTE bReserved; // Reserved ( must be 0)
+    WORD wPlanes; // Color Planes
+    WORD wBitCount; // Bits per pixel
+    DWORD dwBytesInRes; // How many bytes in this resource?
+    DWORD dwImageOffset; // Where in the file is this image?
+} ICONDIRENTRY, *LPICONDIRENTRY;
+*/
+type IconDirEntry struct {
+	BWidth      byte
+	BHeight     byte
+	BColorCount byte
+	BReserved   byte
+	WPlanes     uint16
+	WBitCount   uint16
+	BytesInRes  uint32
+	ImageOffset uint32
+}
+
 func GetDOSHeader(f []byte) *ImageDosHeader {
 	return (*ImageDosHeader)(unsafe.Pointer(&f[0]))
 }
@@ -165,6 +272,166 @@ func GetSectionHeader(f []byte) []*ImageSectionHeader {
 		sections = append(sections, section)
 	}
 	return sections
+}
+
+func GetResourceDirectory(f []byte) (dir *ImageResourceDirectory, rootOffset uint32) {
+
+	nt := GetNtHeader(f)
+
+	var dataDir [16]pe.DataDirectory
+
+	switch nt.FileHeader.SizeOfOptionalHeader {
+
+	case SIZE_OF_OPTIONAL_HEADER_64:
+		//x64
+		dataDir = GetOptHeader64(f).DataDirectory
+
+	case SIZE_OF_OPTIONAL_HEADER_32:
+		//x86
+		dataDir = GetOptHeader32(f).DataDirectory
+	}
+
+	offset := dataDir[pe.IMAGE_DIRECTORY_ENTRY_RESOURCE].VirtualAddress
+
+	rootOffset = RVAToOffset(offset, f)
+
+	firstResourceDir := (*ImageResourceDirectory)(unsafe.Pointer(&f[rootOffset]))
+
+	return firstResourceDir, rootOffset
+}
+
+/*
+size_t RVAToOffset(size_t stRVA,PVOID lpFileBuf)
+{
+	PIMAGE_DOS_HEADER pDos = (PIMAGE_DOS_HEADER)lpFileBuf;
+	size_t stPEHeadAddr = (size_t)lpFileBuf + pDos ->e_lfanew;
+	PIMAGE_NT_HEADERS32 pNT = (PIMAGE_NT_HEADERS32)stPEHeadAddr;
+	//区段数
+	DWORD dwSectionCount = pNT->FileHeader.NumberOfSections;
+	//内存对齐大小
+	DWORD dwMemoruAil = pNT->OptionalHeader.SectionAlignment;
+	PIMAGE_SECTION_HEADER pSection = IMAGE_FIRST_SECTION(pNT);
+	//距离命中节的起始虚拟地址的偏移值。
+	DWORD  dwDiffer = 0;
+	for (DWORD i = 0; i < dwSectionCount; i++)
+	{
+		//模拟内存对齐机制
+		DWORD dwBlockCount	= pSection[i].SizeOfRawData/dwMemoruAil;
+		dwBlockCount       += pSection[i].SizeOfRawData%dwMemoruAil? 1 : 0;
+
+		DWORD dwBeginVA     = pSection[i].VirtualAddress;
+		DWORD dwEndVA       = pSection[i].VirtualAddress + dwBlockCount * dwMemoruAil;
+		//如果stRVA在某个区段中
+		if (stRVA >= dwBeginVA && stRVA < dwEndVA)
+		{
+			dwDiffer = stRVA - dwBeginVA;
+			return pSection[i].PointerToRawData + dwDiffer;
+		}
+		else if (stRVA < dwBeginVA)//在文件头中直接返回
+		{
+			return stRVA;
+		}
+	}
+	return 0;
+}
+*/
+
+func RVAToOffset(RVA uint32, f []byte) uint32 {
+
+	file := GetFileHeader(f)
+	sec := GetSectionHeader(f)
+
+	//内存对齐大小
+	var memoryAil uint32
+
+	switch file.SizeOfOptionalHeader {
+	case SIZE_OF_OPTIONAL_HEADER_32:
+		memoryAil = GetOptHeader32(f).SectionAlignment
+	case SIZE_OF_OPTIONAL_HEADER_64:
+		memoryAil = GetOptHeader64(f).SectionAlignment
+	}
+
+	for _, v := range sec {
+
+		blockCount := v.SizeOfRawData / memoryAil
+
+		if v.SizeOfRawData%memoryAil > 0 {
+			blockCount++
+		}
+
+		beginVA := v.VirtualAddress
+		endVA := v.VirtualAddress + blockCount*memoryAil
+
+		//如果RVA在某个区段中
+		if RVA >= beginVA && RVA < endVA {
+			differ := RVA - beginVA
+			return v.PointerToRawData + differ
+		} else if RVA < beginVA {
+			return RVA
+		}
+	}
+	return 0
+}
+
+/*
+	PIMAGE_DOS_HEADER pDos = (PIMAGE_DOS_HEADER)lpFileBuf;
+
+	size_t stPEHeadAddr = (size_t)lpFileBuf + pDos ->e_lfanew;
+	PIMAGE_NT_HEADERS32 pNT = (PIMAGE_NT_HEADERS32)stPEHeadAddr;
+
+	DWORD dwSectionCount = pNT->FileHeader.NumberOfSections;
+
+	DWORD dwImageBase    = pNT->OptionalHeader.ImageBase;
+
+	PIMAGE_SECTION_HEADER pSection = IMAGE_FIRST_SECTION(pNT);
+
+	DWORD  dwDiffer = 0;
+	for (DWORD i = 0; i <  dwSectionCount; i++)
+	{
+		DWORD dwBeginVA     = pSection[i].PointerToRawData;
+		DWORD dwEndVA       = pSection[i].PointerToRawData + pSection[i].SizeOfRawData;
+
+		if (stOffset >= dwBeginVA && stOffset < dwEndVA)
+		{
+			dwDiffer = stOffset - dwBeginVA;
+
+			return dwImageBase + pSection[i].VirtualAddress + dwDiffer;
+		}
+		else if (stOffset < dwBeginVA)
+		{
+			return dwImageBase + stOffset;
+		}
+	}
+	return 0;
+*/
+func Offset2VA(offset uint32, f []byte) uint64 {
+
+	file := GetFileHeader(f)
+	sec := GetSectionHeader(f)
+
+	//内存对齐大小
+	var imageBase uint64
+
+	switch file.SizeOfOptionalHeader {
+	case SIZE_OF_OPTIONAL_HEADER_32:
+		imageBase = uint64(GetOptHeader32(f).ImageBase)
+	case SIZE_OF_OPTIONAL_HEADER_64:
+		imageBase = GetOptHeader64(f).ImageBase
+	}
+
+	for _, v := range sec {
+
+		beginVA := v.PointerToRawData
+		EndVA := v.PointerToRawData + v.SizeOfRawData
+
+		if offset >= beginVA && offset < EndVA {
+			differ := offset - beginVA
+			return imageBase + uint64(v.VirtualAddress+differ)
+		} else if offset < beginVA {
+			return imageBase + uint64(offset)
+		}
+	}
+	return 0
 }
 
 func GetDataDirectory(f []byte) *[16]pe.DataDirectory {

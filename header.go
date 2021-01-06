@@ -300,6 +300,32 @@ func GetResourceDirectory(f []byte) (dir *ImageResourceDirectory, rootOffset uin
 	return firstResourceDir, rootOffset
 }
 
+func GetDataDirectory(f []byte) *[16]pe.DataDirectory {
+	nt := GetNtHeader(f)
+
+	switch nt.FileHeader.SizeOfOptionalHeader {
+
+	case 0xf0:
+		//x64
+		op := GetOptHeader64(f)
+
+		return &op.DataDirectory
+
+	case 0xe0:
+		//x86
+		op := GetOptHeader32(f)
+
+		return &op.DataDirectory
+	}
+	return nil
+}
+
+func GetExportDirectory(f []byte) *ImageExportDirectory {
+	data := GetDataDirectory(f)
+	export := data[pe.IMAGE_DIRECTORY_ENTRY_EXPORT]
+	return (*ImageExportDirectory)(unsafe.Pointer(&f[export.VirtualAddress]))
+}
+
 /*
 size_t RVAToOffset(size_t stRVA,PVOID lpFileBuf)
 {
@@ -432,32 +458,4 @@ func Offset2VA(offset uint32, f []byte) uint64 {
 		}
 	}
 	return 0
-}
-
-func GetDataDirectory(f []byte) *[16]pe.DataDirectory {
-	nt := GetNtHeader(f)
-
-	switch nt.FileHeader.SizeOfOptionalHeader {
-
-	case 0xf0:
-		//x64
-		op := GetOptHeader64(f)
-
-		return &op.DataDirectory
-
-	case 0xe0:
-		//x86
-		op := GetOptHeader32(f)
-
-		return &op.DataDirectory
-	}
-
-	return nil
-}
-
-func GetExportDirectory(f []byte) *IMAGE_EXPORT_DIRECTORY {
-
-	data := GetDataDirectory(f)
-	export := data[pe.IMAGE_DIRECTORY_ENTRY_EXPORT]
-	return (*IMAGE_EXPORT_DIRECTORY)(unsafe.Pointer(&f[export.VirtualAddress]))
 }

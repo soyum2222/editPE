@@ -17,7 +17,7 @@ DWORD   AddressOfNameOrdinals;  // 指向输出函数序号的RVA
 } IMAGE_EXPORT_DIRECTORY, *PIMAGE_EXPORT_DIRECTORY;
 */
 
-type IMAGE_EXPORT_DIRECTORY struct {
+type ImageExportDirectory struct {
 	Characteristics       uint32 // always 0
 	TimeDateStamp         uint32 // create file time
 	MajorVersion          uint16 // always 0

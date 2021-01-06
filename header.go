@@ -276,20 +276,7 @@ func GetSectionHeader(f []byte) []*ImageSectionHeader {
 
 func GetResourceDirectory(f []byte) (dir *ImageResourceDirectory, rootOffset uint32) {
 
-	nt := GetNtHeader(f)
-
-	var dataDir [16]pe.DataDirectory
-
-	switch nt.FileHeader.SizeOfOptionalHeader {
-
-	case SIZE_OF_OPTIONAL_HEADER_64:
-		//x64
-		dataDir = GetOptHeader64(f).DataDirectory
-
-	case SIZE_OF_OPTIONAL_HEADER_32:
-		//x86
-		dataDir = GetOptHeader32(f).DataDirectory
-	}
+	dataDir := GetDataDirectory(f)
 
 	offset := dataDir[pe.IMAGE_DIRECTORY_ENTRY_RESOURCE].VirtualAddress
 
@@ -323,7 +310,8 @@ func GetDataDirectory(f []byte) *[16]pe.DataDirectory {
 func GetExportDirectory(f []byte) *ImageExportDirectory {
 	data := GetDataDirectory(f)
 	export := data[pe.IMAGE_DIRECTORY_ENTRY_EXPORT]
-	return (*ImageExportDirectory)(unsafe.Pointer(&f[export.VirtualAddress]))
+	offset := RVAToOffset(export.VirtualAddress, f)
+	return (*ImageExportDirectory)(unsafe.Pointer(&f[offset]))
 }
 
 /*

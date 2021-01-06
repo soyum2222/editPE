@@ -17,6 +17,59 @@ type PE struct {
 	ExportDirectory       *ImageExportDirectory
 }
 
+type ExportFunc struct {
+	FuncName []*ENT
+	EAT      []*EAT
+}
+
+type EAT struct {
+	RVA uint32
+}
+
+type ENT struct {
+	Name []byte
+}
+
+func (p *PE) GetExportFunc() ExportFunc {
+
+	offset := RVAToOffset(p.ExportDirectory.AddressOfFunctions, p.raw)
+	num := p.ExportDirectory.NumberOfFunctions
+	var eats []*EAT
+	for i := uint32(0); i < num; i++ {
+		eat := (*EAT)(unsafe.Pointer(&p.raw[offset+(4*i)]))
+		eats = append(eats, eat)
+	}
+
+	offset = RVAToOffset(p.ExportDirectory.AddressOfNames, p.raw)
+	num = p.ExportDirectory.NumberOfNames
+	var ents []*ENT
+	for i := uint32(0); i < num; i++ {
+
+		nameRVA := *(*uint32)(unsafe.Pointer(&p.raw[offset+(4*i)]))
+
+		beginOffset := RVAToOffset(nameRVA, p.raw)
+		endOffset := beginOffset
+		for {
+			// 0 meat '\0'
+			if p.raw[endOffset] == 0 {
+				break
+			}
+			endOffset++
+		}
+
+		ent := (*ENT)(unsafe.Pointer(&reflect.SliceHeader{
+			Data: uintptr(unsafe.Pointer(&p.raw[beginOffset])),
+			Len:  int(endOffset - beginOffset),
+		}))
+
+		ents = append(ents, ent)
+	}
+	return ExportFunc{
+		FuncName: ents,
+		EAT:      eats,
+	}
+}
+
 func (p *PE) GetIcon() ([][]byte, error) {
 
 	var icons [][]byte
@@ -163,6 +216,7 @@ func (p *PE) Parse(file []byte) {
 	}
 
 	p.ImageSectionHeaders = GetSectionHeader(file)
+	p.ExportDirectory = GetExportDirectory(file)
 }
 
 func (p *PE) AddSection(name string, size uint32) {

@@ -1,4 +1,4 @@
-package main
+package editPE
 
 /*
 typedef struct _IMAGE_EXPORT_DIRECTORY {

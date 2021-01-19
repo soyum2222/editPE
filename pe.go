@@ -8,7 +8,7 @@ import (
 )
 
 type PE struct {
-	raw                   []byte
+	Raw                   []byte
 	ImageDosHeader        *ImageDosHeader
 	ImageNTHeaders        *ImageNTHeaders
 	ImageOptionalHeader32 *pe.OptionalHeader32
@@ -32,33 +32,33 @@ type ENT struct {
 
 func (p *PE) GetExportFunc() ExportFunc {
 
-	offset := RVAToOffset(p.ExportDirectory.AddressOfFunctions, p.raw)
+	offset := RVAToOffset(p.ExportDirectory.AddressOfFunctions, p.Raw)
 	num := p.ExportDirectory.NumberOfFunctions
 	var eats []*EAT
 	for i := uint32(0); i < num; i++ {
-		eat := (*EAT)(unsafe.Pointer(&p.raw[offset+(4*i)]))
+		eat := (*EAT)(unsafe.Pointer(&p.Raw[offset+(4*i)]))
 		eats = append(eats, eat)
 	}
 
-	offset = RVAToOffset(p.ExportDirectory.AddressOfNames, p.raw)
+	offset = RVAToOffset(p.ExportDirectory.AddressOfNames, p.Raw)
 	num = p.ExportDirectory.NumberOfNames
 	var ents []*ENT
 	for i := uint32(0); i < num; i++ {
 
-		nameRVA := *(*uint32)(unsafe.Pointer(&p.raw[offset+(4*i)]))
+		nameRVA := *(*uint32)(unsafe.Pointer(&p.Raw[offset+(4*i)]))
 
-		beginOffset := RVAToOffset(nameRVA, p.raw)
+		beginOffset := RVAToOffset(nameRVA, p.Raw)
 		endOffset := beginOffset
 		for {
 			// 0 meat '\0'
-			if p.raw[endOffset] == 0 {
+			if p.Raw[endOffset] == 0 {
 				break
 			}
 			endOffset++
 		}
 
 		ent := (*ENT)(unsafe.Pointer(&reflect.SliceHeader{
-			Data: uintptr(unsafe.Pointer(&p.raw[beginOffset])),
+			Data: uintptr(unsafe.Pointer(&p.Raw[beginOffset])),
 			Len:  int(endOffset - beginOffset),
 		}))
 
@@ -74,11 +74,11 @@ func (p *PE) GetIcon() ([][]byte, error) {
 
 	var icons [][]byte
 	//p.Parse(f)
-	if len(p.raw) == 0 {
+	if len(p.Raw) == 0 {
 		return nil, errors.New("please call Parse function first")
 	}
 
-	firstResourceDir, rootOffset := GetResourceDirectory(p.raw)
+	firstResourceDir, rootOffset := GetResourceDirectory(p.Raw)
 
 	dirEntryNum := firstResourceDir.NumberOfIdEntries
 
@@ -86,7 +86,7 @@ func (p *PE) GetIcon() ([][]byte, error) {
 
 	for i := uint16(0); i < dirEntryNum; i++ {
 		entryOffset := rootOffset + uint32(unsafe.Sizeof(ImageResourceDirectory{})) + (uint32(unsafe.Sizeof(ImageResourceDirectoryEntry{})) * uint32(i))
-		entry := (*ImageResourceDirectoryEntry)(unsafe.Pointer(&p.raw[entryOffset]))
+		entry := (*ImageResourceDirectoryEntry)(unsafe.Pointer(&p.Raw[entryOffset]))
 		entrySlice[i] = entry
 	}
 
@@ -99,7 +99,7 @@ func (p *PE) GetIcon() ([][]byte, error) {
 			offset += rootOffset
 
 			//Secondary directory
-			secondResourceDir := (*ImageResourceDirectory)(unsafe.Pointer(&p.raw[offset]))
+			secondResourceDir := (*ImageResourceDirectory)(unsafe.Pointer(&p.Raw[offset]))
 
 			dirEntryNum = secondResourceDir.NumberOfIdEntries
 
@@ -107,7 +107,7 @@ func (p *PE) GetIcon() ([][]byte, error) {
 
 			for i := uint16(0); i < dirEntryNum; i++ {
 				entryOffset := offset + uint32(unsafe.Sizeof(ImageResourceDirectory{})) + (uint32(unsafe.Sizeof(ImageResourceDirectoryEntry{})) * uint32(i))
-				entry := (*ImageResourceDirectoryEntry)(unsafe.Pointer(&p.raw[entryOffset]))
+				entry := (*ImageResourceDirectoryEntry)(unsafe.Pointer(&p.Raw[entryOffset]))
 				secEntrySlice[i] = entry
 			}
 
@@ -120,7 +120,7 @@ func (p *PE) GetIcon() ([][]byte, error) {
 
 					offset += rootOffset
 
-					thirdResourceDir := (*ImageResourceDirectory)(unsafe.Pointer(&p.raw[offset]))
+					thirdResourceDir := (*ImageResourceDirectory)(unsafe.Pointer(&p.Raw[offset]))
 
 					dirEntryNum = thirdResourceDir.NumberOfIdEntries
 
@@ -128,7 +128,7 @@ func (p *PE) GetIcon() ([][]byte, error) {
 
 					for i := uint16(0); i < dirEntryNum; i++ {
 						entryOffset := offset + uint32(unsafe.Sizeof(ImageResourceDirectory{})) + (uint32(unsafe.Sizeof(ImageResourceDirectoryEntry{})) * uint32(i))
-						entry := (*ImageResourceDirectoryEntry)(unsafe.Pointer(&p.raw[entryOffset]))
+						entry := (*ImageResourceDirectoryEntry)(unsafe.Pointer(&p.Raw[entryOffset]))
 						thirdEntrySlice[i] = entry
 					}
 
@@ -137,12 +137,12 @@ func (p *PE) GetIcon() ([][]byte, error) {
 						offset := v.OffsetToData
 						offset += rootOffset
 
-						data := (*ImageResourceDataEntry)(unsafe.Pointer(&p.raw[offset]))
+						data := (*ImageResourceDataEntry)(unsafe.Pointer(&p.Raw[offset]))
 
 						rva := data.OffsetToData
-						rawaddr := RVAToOffset(rva, p.raw)
+						rawaddr := RVAToOffset(rva, p.Raw)
 
-						icons = append(icons, p.raw[rawaddr:rawaddr+data.Size])
+						icons = append(icons, p.Raw[rawaddr:rawaddr+data.Size])
 					}
 				}
 			}
@@ -198,7 +198,7 @@ func (p *PE) GetIcon() ([][]byte, error) {
 // if this file is not correct PE file ,  may happen panic
 func (p *PE) Parse(file []byte) {
 
-	p.raw = file
+	p.Raw = file
 
 	p.ImageDosHeader = GetDOSHeader(file)
 
@@ -221,7 +221,7 @@ func (p *PE) Parse(file []byte) {
 
 func (p *PE) AddSection(name string, size uint32) {
 	p.ImageNTHeaders.FileHeader.NumberOfSections++
-	p.Parse(p.raw)
+	p.Parse(p.Raw)
 
 	tail := len(p.ImageSectionHeaders) - 1
 
@@ -252,7 +252,7 @@ func (p *PE) AddSection(name string, size uint32) {
 	if tail == 0 {
 		p.ImageSectionHeaders[tail].VirtualAddress = alignment
 		p.ImageSectionHeaders[tail].PhysicalAddressOrVirtualSize = uint32(size)
-		p.ImageSectionHeaders[tail].PointerToRawData = uint32(len(p.raw))
+		p.ImageSectionHeaders[tail].PointerToRawData = uint32(len(p.Raw))
 		p.ImageSectionHeaders[tail].SizeOfRawData = uint32(size)
 	} else {
 		vOffset := p.ImageSectionHeaders[tail-1].VirtualAddress + p.ImageSectionHeaders[tail-1].PhysicalAddressOrVirtualSize
@@ -262,7 +262,7 @@ func (p *PE) AddSection(name string, size uint32) {
 		p.ImageSectionHeaders[tail].VirtualAddress = vOffset
 		p.ImageSectionHeaders[tail].PhysicalAddressOrVirtualSize = uint32(size)
 
-		p.ImageSectionHeaders[tail].PointerToRawData = uint32(len(p.raw))
+		p.ImageSectionHeaders[tail].PointerToRawData = uint32(len(p.Raw))
 
 		if size%alignment != 0 {
 			size = size + (alignment - (size % alignment))
@@ -270,9 +270,9 @@ func (p *PE) AddSection(name string, size uint32) {
 		p.ImageSectionHeaders[tail].SizeOfRawData = uint32(size)
 		p.ImageSectionHeaders[tail].Characteristics = 0xE00000E0
 
-		p.raw = append(p.raw, make([]byte, size)...)
+		p.Raw = append(p.Raw, make([]byte, size)...)
 
-		p.Parse(p.raw)
+		p.Parse(p.Raw)
 
 		if p.ImageOptionalHeader32 != nil {
 			p.ImageOptionalHeader32.SizeOfImage = p.ImageSectionHeaders[tail].VirtualAddress + p.ImageSectionHeaders[tail].PhysicalAddressOrVirtualSize

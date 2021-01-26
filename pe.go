@@ -242,35 +242,41 @@ func (p *PE) AddSection(name string, size uint32) {
 	p.ImageSectionHeaders[tail].Name[6] = name[6]
 	p.ImageSectionHeaders[tail].Name[7] = name[7]
 
-	var alignment uint32
+	var sAlignment uint32
+	var fAlignment uint32
 	if p.ImageOptionalHeader32 != nil {
-		alignment = (p.ImageOptionalHeader32.SectionAlignment)
+		sAlignment = p.ImageOptionalHeader32.SectionAlignment
+		fAlignment = p.ImageOptionalHeader32.FileAlignment
 	} else {
-		alignment = (p.ImageOptionalHeader64.SectionAlignment)
+		sAlignment = p.ImageOptionalHeader64.SectionAlignment
+		fAlignment = p.ImageOptionalHeader64.FileAlignment
 	}
 
+	PointerToRawData := uint32(len(p.Raw))
+	PointerToRawData += (fAlignment - (PointerToRawData % fAlignment))
+
 	if tail == 0 {
-		p.ImageSectionHeaders[tail].VirtualAddress = alignment
+		p.ImageSectionHeaders[tail].VirtualAddress = sAlignment
 		p.ImageSectionHeaders[tail].PhysicalAddressOrVirtualSize = uint32(size)
-		p.ImageSectionHeaders[tail].PointerToRawData = uint32(len(p.Raw))
+		p.ImageSectionHeaders[tail].PointerToRawData = PointerToRawData
 		p.ImageSectionHeaders[tail].SizeOfRawData = uint32(size)
 	} else {
 		vOffset := p.ImageSectionHeaders[tail-1].VirtualAddress + p.ImageSectionHeaders[tail-1].PhysicalAddressOrVirtualSize
-		if vOffset%alignment != 0 {
-			vOffset = vOffset + (alignment - (vOffset % alignment))
+		if vOffset%sAlignment != 0 {
+			vOffset = vOffset + (sAlignment - (vOffset % sAlignment))
 		}
 		p.ImageSectionHeaders[tail].VirtualAddress = vOffset
 		p.ImageSectionHeaders[tail].PhysicalAddressOrVirtualSize = uint32(size)
 
-		p.ImageSectionHeaders[tail].PointerToRawData = uint32(len(p.Raw))
+		p.ImageSectionHeaders[tail].PointerToRawData = PointerToRawData
 
-		if size%alignment != 0 {
-			size = size + (alignment - (size % alignment))
+		if size%sAlignment != 0 {
+			size = size + (sAlignment - (size % sAlignment))
 		}
 		p.ImageSectionHeaders[tail].SizeOfRawData = uint32(size)
 		p.ImageSectionHeaders[tail].Characteristics = 0xE00000E0
 
-		p.Raw = append(p.Raw, make([]byte, size)...)
+		p.Raw = append(p.Raw, make([]byte, (fAlignment-(uint32(len(p.Raw)))%fAlignment)+size)...)
 
 		p.Parse(p.Raw)
 

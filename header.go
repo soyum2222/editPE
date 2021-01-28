@@ -314,6 +314,13 @@ func GetExportDirectory(f []byte) *ImageExportDirectory {
 	return (*ImageExportDirectory)(unsafe.Pointer(&f[offset]))
 }
 
+func GetImportDirectory(f []byte) *ImageImportDirectory {
+	data := GetDataDirectory(f)
+	_import := data[pe.IMAGE_DIRECTORY_ENTRY_IMPORT]
+	offset := RVAToOffset(_import.VirtualAddress, f)
+	return (*ImageImportDirectory)(unsafe.Pointer(&f[offset]))
+}
+
 /*
 size_t RVAToOffset(size_t stRVA,PVOID lpFileBuf)
 {

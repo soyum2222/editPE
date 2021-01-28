@@ -276,7 +276,7 @@ func (p *PE) AddSection(name string, size uint32) {
 		p.ImageSectionHeaders[tail].SizeOfRawData = uint32(size)
 		p.ImageSectionHeaders[tail].Characteristics = 0xE00000E0
 
-		p.Raw = append(p.Raw, make([]byte, (fAlignment-(uint32(len(p.Raw)))%fAlignment)+size)...)
+		p.Raw = append(p.Raw, make([]byte, (fAlignment-((uint32(len(p.Raw)))%fAlignment))+size)...)
 
 		p.Parse(p.Raw)
 

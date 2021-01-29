@@ -3,7 +3,6 @@ package editPE
 import (
 	"debug/pe"
 	"errors"
-	"fmt"
 	"reflect"
 	"unsafe"
 )
@@ -32,44 +31,45 @@ type ENT struct {
 	Name []byte
 }
 
-func (p *PE) GetImportData() {
+func (p *PE) GetImportData() []ImportTable {
 
-	INTOffset := RVAToOffset(p.ImportDirectory.OriginalFirstThunk, p.Raw)
-
-	nameOffset := RVAToOffset(p.ImportDirectory.Name, p.Raw)
-
-	//nameAddress := RVAToOffset(nameOffset, p.Raw)
-	begin := nameOffset
-	end := nameOffset
+	tables := []ImportTable{}
+	importDirectory := p.ImportDirectory
 	for {
-		if p.Raw[end] == 0 {
+		table := ImportTable{}
+
+		INTOffset := RVAToOffset(importDirectory.OriginalFirstThunk, p.Raw)
+
+		var INTS []uint32
+		for i := uint32(0); ; i++ {
+			INT := *(*uint32)(unsafe.Pointer(&p.Raw[INTOffset+(8*i)]))
+			if INT == 0 {
+				break
+			}
+			INTS = append(INTS, INT)
+		}
+
+		for _, offset := range INTS {
+			offset = RVAToOffset(offset, p.Raw)
+			name := (*ImageImportByName)(unsafe.Pointer(&p.Raw[offset]))
+
+			table.APIName = append(table.APIName, name)
+		}
+
+		table.ImageImportDirectory = importDirectory
+		tables = append(tables, table)
+
+		importDirectory = (*ImageImportDirectory)(unsafe.Pointer(uintptr(unsafe.Pointer(importDirectory)) + uintptr(unsafe.Sizeof(ImageImportDirectory{}))))
+		if importDirectory.OriginalFirstThunk == 0 &&
+			importDirectory.TimeDateStamp == 0 &&
+			importDirectory.ForwarderChain == 0 &&
+			importDirectory.Name == 0 &&
+			importDirectory.FirstThunk == 0 {
 			break
 		}
-		end++
 	}
 
-	name := *(*string)(unsafe.Pointer(&reflect.SliceHeader{
-		Data: uintptr(unsafe.Pointer(&p.Raw[begin])),
-		Len:  int(end - begin),
-	}))
-
-	fmt.Println(name)
-
-	var INTS []uint32
-	for i := uint32(0); ; i++ {
-		INT := *(*uint32)(unsafe.Pointer(&p.Raw[INTOffset+(8*i)]))
-		if INT == 0 {
-			break
-		}
-		INTS = append(INTS, INT)
-	}
-
-	for _, offset := range INTS {
-		offset = RVAToOffset(offset, p.Raw)
-		name := *(*ImageImportByName)(unsafe.Pointer(&p.Raw[offset]))
-		fmt.Println(name.Hint)
-		fmt.Println(string(name.Name[:]))
-	}
+	return tables
 }
 
 func (p *PE) GetExportFunc() ExportFunc {

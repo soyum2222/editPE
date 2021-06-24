@@ -2,6 +2,7 @@ package editPE
 
 import (
 	"debug/pe"
+	"encoding/binary"
 	"errors"
 	"reflect"
 	"unsafe"
@@ -210,9 +211,9 @@ func (p *PE) GetIcon() ([][]byte, error) {
 		head = append(head, h...)
 
 		entry := &IconDirEntry{
-			BWidth:      0,
-			BHeight:     0,
-			BColorCount: 0,
+			BWidth:      uint8(binary.LittleEndian.Uint32(icons[i][4:8])),
+			BHeight:     uint8(binary.LittleEndian.Uint32(icons[i][4:8])),
+			BColorCount: 0x1,
 			BReserved:   0,
 			WPlanes:     0,
 			WBitCount:   0,
